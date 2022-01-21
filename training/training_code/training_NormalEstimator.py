@@ -30,7 +30,7 @@ IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
 BATCH_SIZE = 8#여기서는 BATCH_SIZE를 8로 하겠습니다.
 ITERATIONS = 100000000#이터레이션의 횟수
 
-rp_path = "/home/ug_psh/AMILab/training_data/Tang_data"#Tang_data의 경로
+rp_path = "/home/ug_psh/HDNet_torch_ami/training_data/Tang_data"#Tang_data의 경로
 RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
 
@@ -67,9 +67,9 @@ with sess.as_default():
         
         
 ##  ********************** make the output folders ********************** 
-ck_pnts_dir = "/home/ug_psh/AMILab/training_progress/tensorflow/model/NormalEstimator"
-log_dir = "/home/ug_psh/AMILab/training_progress/tensorflow"
-Vis_dir_rp  = "/home/ug_psh/AMILab/training_progress/tensorflow/visualization/NormalEstimator/Tang/"
+ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/NormalEstimator"
+log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow"
+Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/NormalEstimator/Tang/"
 
 if not gfile.Exists(ck_pnts_dir):
     print("ck_pnts_dir created!")
@@ -91,7 +91,7 @@ for itr in range(ITERATIONS):
 
     (_,loss_val,prediction1) = sess.run([train_step,total_loss,out2],
                                                   feed_dict={x1:X1,n1:N1,z1:Z1})#iteration마다 sess.run으로 graph를 실행시킨다.
-    pdb.set_trace()
+    
     if itr%10 == 0:
         f_err = open(log_dir+"trainLog.txt","a")
         f_err.write("%d %g\n" % (itr,loss_val))

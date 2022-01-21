@@ -6,7 +6,8 @@ from PIL import Image, ImageDraw, ImageFont
 import math
 from tensorflow.python.platform import gfile
 import scipy.misc
-
+import pdb
+from functions import showOperation
 IMAGE_HEIGHT = 256
 IMAGE_WIDTH = 256
 
@@ -91,6 +92,7 @@ def calc_loss_d_refined_mask(output, y, z_refined):
     y_masked_flat_refined = tf.reshape(y_masked,[-1, IMAGE_HEIGHT*IMAGE_WIDTH]) #같은 모양으로 reshape. 너비를 256*256고정
     
     max_y = tf.reduce_max(y_masked_flat_refined,1)  #axis 1에 대해 가장 큰 값을 추출. 즉, 너비 256*256당 1개의 max값 도출
+    
     matrix_max_y = tf.transpose(tf.reshape(tf.tile(max_y, multiply), [ multiply[0], tf.shape(max_y)[0]]))   #tile=max_y를 복붙하는데 256*256 길이로 복붙. 각 픽셀마다 max_y 벡터 존재.
     #Max_y(h)가 동일한 형태로 256*256으로 배열되어 있던거를 reshape: [256*256, max_y벡터크기]
     #max_y(h)가 가로로 256*256개 늘어서 있는 모양

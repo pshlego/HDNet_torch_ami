@@ -1,17 +1,17 @@
 ## **********************  import **********************
 from __future__ import absolute_import, division, print_function, unicode_literals#이건 파이썬 3에서 쓰던 문법을 파이썬 2에서 쓸수 있게 해주는 문법이다.
-
+import warnings
+warnings.filterwarnings('ignore')
 import tensorflow as tf# tensorflow import
 import os.path
 import os# 운영체제를 제어하는 모듈
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 from os import path
 import numpy as np# python에서 벡터, 행렬 등 수치 연산을 수행하는 선형대수 라이브러리
 import skimage.data# skimage는 이미지 처리하기 위한 파이썬 라이브러리
 from PIL import Image, ImageDraw, ImageFont# PIL은 파이썬 인터프리터에 다양한 이미지 처리와 그래픽 기능을 제공하는 라이브러리
 import random
 import scipy.misc# scipy에서 기타 함수 https://docs.scipy.org/doc/scipy/reference/misc.html
-
+import pdb
 import math# 수학 관련 함수들이 들어있는 라이브러리
 from tensorflow.python.platform import gfile# open()이랑 같고, tensorflow용 파일 입출력 함수
 
@@ -30,12 +30,12 @@ IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
 BATCH_SIZE = 1#여기서는 BATCH_SIZE를 1로 하겠습니다.
 ITERATIONS = 100000000#이터레이션의 횟수
 
-pre_ck_pnts_dir = "../model/depth_prediction"
+pre_ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/model/tensorflow/depth_prediction"
 model_num = '1920000'
 model_num_int = 1920000
 
-rp_path = "/home/ug_psh/AMILab/training_data/Tang_data"#Tang_data의 경로
-tk_path = "/home/ug_psh/AMILab/training_data/tiktok_data/"#tiktok_data의 경로
+rp_path = "/home/ug_psh/HDNet_torch_ami/training_data/Tang_data"#Tang_data의 경로
+tk_path = "/home/ug_psh/HDNet_torch_ami/training_data/tiktok_data/"#tiktok_data의 경로
 RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
 
@@ -120,20 +120,22 @@ with refineNet_graph.as_default():#with 구문을 이용하면 원하는 그래�
                                         name='Adam').minimize(total_loss)
 
 ##  ********************** initialize the network ********************** 
-sess = tf.Session(graph=refineNet_graph)#graph를 초기화한다.
+config = tf.ConfigProto()
+config.gpu_options.allow_growth = True
+sess = tf.Session(graph=refineNet_graph, config=config)#graph를 초기화한다.
 with sess.as_default():
     with refineNet_graph.as_default():
         tf.global_variables_initializer().run()
         saver = tf.train.Saver()
-        saver = tf.train.import_meta_graph(pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt.meta')
-        saver.restore(sess,pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt')
+#        saver = tf.train.import_meta_graph(pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt.meta')
+#        saver.restore(sess,pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt')
         print("Model restored.")
         
 ##  ********************** make the output folders ********************** 
-ck_pnts_dir = "../training_progress/model/HDNet"
-Vis_dir  = "../training_progress/visualization/HDNet/tiktok/"
-log_dir = "../training_progress/"
-Vis_dir_rp  = "../training_progress/visualization/HDNet/Tang/"
+ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/DepthEstimator"
+log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/"
+Vis_dir  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/HDNet/tiktok/"
+Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/DepthEstimator/Tang/"
 
 if not gfile.Exists(ck_pnts_dir):
     print("ck_pnts_dir created!")
@@ -144,7 +146,7 @@ if not gfile.Exists(Vis_dir):
     gfile.MakeDirs(Vis_dir)
     
 if not gfile.Exists(Vis_dir_rp):
-    print("Vis_dir created!")
+    print("Vis_dir_rp created!")
     gfile.MakeDirs(Vis_dir_rp)
     
 if (path.exists(log_dir+"trainLog.txt")):
@@ -182,7 +184,9 @@ for itr in range(ITERATIONS):
     if itr % 100 == 0:
         # visually compare the first sample in the batch between predicted and ground truth
         fidx = [int(frms[0])]
+        
         write_prediction(Vis_dir_rp,prediction1,itr,fidx,Z1);
+        
         write_prediction_normal(Vis_dir_rp,nmap1_pred,itr,fidx,Z1)
         save_prediction_png (prediction1[0,...,0],nmap1_pred[0,...],X1,Z1,Z1_3,Vis_dir_rp,itr,fidx,1)
         fidx = [int(frms_tk[0])]

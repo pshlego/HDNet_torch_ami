@@ -10,6 +10,7 @@ import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
+import pdb
 IMAGE_HEIGHT = 256 # 이미지 가로 크기
 IMAGE_WIDTH = 256 # 이미지 세로 크기
 
@@ -23,7 +24,7 @@ IMAGE_WIDTH = 256 # 이미지 세로 크기
 #compute_dp_tr_3d_2d_loss2(d_i,d_j,i_r1_c1_r2_c2,i_limit,C,R,Rt,cen,K,Ki,origin,scaling): 3차원 좌표끼리의 loss와 그 3차원 좌표를 reprojection한 좌표끼리의 loss를 모두 출력한다. 그리고 예측한 좌표와 실제 좌표도 출력한다.
 # *****************************************************************************************************
 
-def rigid_transform_3D_1(A,B):# B는 warping function에 의해 예측된 p값, A는 i번째 instance의 p값이다. 그리고 이 함수는 그에 맞는 R과 T를 내보낸다.
+def rigid_transform_3D_1(A,B,device):# B는 warping function에 의해 예측된 p값, A는 i번째 instance의 p값이다. 그리고 이 함수는 그에 맞는 R과 T를 내보낸다.
     A = torch.transpose(A,0,1) #3*N, tf.transpose는 matrix에 transpose를 시켜준다.
     B = torch.transpose(B,0,1) #3*N, B=R*A+T이다.
     
@@ -31,10 +32,10 @@ def rigid_transform_3D_1(A,B):# B는 warping function에 의해 예측된 p값, 
     num_cols = B.size()[1] #N, [1]은 열이다.
     centroid_A = torch.mean(A,1).view(3,1) #3*1, 1*3을 3*1로 reshape했다.
     centroid_B = torch.mean(B,1).view(3,1) #3*1
-    one_row = torch.ones([1,num_cols], dtype=torch.float32) # 1*N, tf.ones는 모든 요소가 1로 설정된 텐서를 생성한다.
+    one_row = torch.ones([1,num_cols], dtype=torch.float32).to(device) # 1*N, tf.ones는 모든 요소가 1로 설정된 텐서를 생성한다.
     Amean = torch.cat([one_row*centroid_A[0,0],one_row*centroid_A[1,0],one_row*centroid_A[2,0]],0) #3*N, 여기서 centoid_A[0,0]은 3*1 column의 첫번째 행의 값이다. 즉, 상수값이란 소리다. 그리고 tf.concat(,0)이기에 행을 위에서부터 이어붙이는 것이다.
     Bmean = torch.cat([one_row*centroid_B[0,0],one_row*centroid_B[1,0],one_row*centroid_B[2,0]],0) #3*N, 위의 코드 설명과 마찬가지
-    
+   
     Am = torch.sub(A ,Amean)#A의 각 행에 그 행의 평균을 모두 빼준다. 
     Bm = torch.sub(B ,Bmean)#B의 각 행에 그 행의 평균을 모두 빼준다.
     if num_cols == 0:
@@ -47,10 +48,10 @@ def rigid_transform_3D_1(A,B):# B는 warping function에 의해 예측된 p값, 
     
     return R,t
 
-def get_pc_transformation2_1(p1,p2):#p1은 i번째 instance의 p값, p2는 warping function에 의해 예측된 j번째 instance의 p값
+def get_pc_transformation2_1(p1,p2,device):#p1은 i번째 instance의 p값, p2는 warping function에 의해 예측된 j번째 instance의 p값
     
-    R,t = rigid_transform_3D_1(p1, p2)#R과 t가 계산되어서 나온다.
-    one_row = torch.ones([1,p1.size()[0]],dtype=torch.float32) # 1*N, p1이 N*3인데, tf.shape(p1)[0]은 row의 개수를 내보내기에 N을 내보내고, 1*N의 1로 구성된 matrix가 나온다. 
+    R,t = rigid_transform_3D_1(p1, p2,device)#R과 t가 계산되어서 나온다.
+    one_row = torch.ones([1,p1.size()[0]],dtype=torch.float32).to(device) # 1*N, p1이 N*3인데, tf.shape(p1)[0]은 row의 개수를 내보내기에 N을 내보내고, 1*N의 1로 구성된 matrix가 나온다. 
     tmat = torch.cat([one_row*t[0,0],one_row*t[1,0],one_row*t[2,0]],0) #3*N, t가 3*1인데, tmat의 첫 번째 row는 t의 첫번째 row값들이 N개 있고, 두번째 row는 t의 2번째 row값들이 N개 있고, 세번째 row는 t의 3번째 row값들이 N개 있다.
     p1_2 = torch.transpose(torch.mm(R,torch.transpose(p1,0,1)) + tmat,0,1) #N*3, R*p1^T+tmat인데, (RA+T)^T이기에 N*3이 된다. 즉, 새로운 R과 T를 반영해서 계산한 warping function으로 예측된 j번째 instance의 p인 것 같다.
     
@@ -58,7 +59,7 @@ def get_pc_transformation2_1(p1,p2):#p1은 i번째 instance의 p값, p2는 warpi
 
 # *****************************************************************************************************
 
-def Depth2Points3D_transformed_vector_1(Dlambda, indices , Rt, Ki, cen, origin, scaling):#3D point를 reconstruction하는 함수
+def Depth2Points3D_transformed_vector_1(Dlambda, indices , Rt, Ki, cen, origin, scaling,device):#3D point를 reconstruction하는 함수
     
     num_of_points = Dlambda.size()[0] #N, Dlamda의 행의 shape을 정수형 tensor로 반환. Dlamda의 행이 N인가보다. 그리고 N은 point의 개수인 것 같다.
     num_of_batches = 1 #batch의 사이즈
@@ -73,7 +74,7 @@ def Depth2Points3D_transformed_vector_1(Dlambda, indices , Rt, Ki, cen, origin, 
     
     idx = indices.type(torch.float32)# indices는 index들을 말하는 것 같다. tf.cat으로 이를 float32로 typecasting 한다.
 
-    row_of_ones = torch.ones([1, num_of_points], dtype=torch.float32) # 1 x N의 요소가 모두 1로 이루어진 행렬 제작
+    row_of_ones = torch.ones([1, num_of_points], dtype=torch.float32).to(device) # 1 x N의 요소가 모두 1로 이루어진 행렬 제작
     
 # dividing xy and the batch number    
     bxy = idx # N x 3<--이라고 써있는데, N X 2인 것 같다.
@@ -129,7 +130,7 @@ def Depth2Points3D_transformed_vector_1(Dlambda, indices , Rt, Ki, cen, origin, 
 
 # *****************************************************************************************************
 
-def part_transformation2_1(i_limit,PC1,PC2,p):
+def part_transformation2_1(i_limit,PC1,PC2,p, device):
     strp = i_limit[p,1]#part_transformation에서 미리 정의한 transformation을 part별로 대표하는 점들을 define한다고 했었는데, 해당 part p의 처음 point의 index인 것 같다.
     endp = i_limit[p,2]+1#part_transformation에서 미리 정의한 transformation을 part별로 대표하는 점들을 define한다고 했었는데, 해당 part p의 마지막 point의 index인 것 같다.
     p2p = torch.zeros([],dtype=torch.float32)#모든 요소가 0인 tensor를 정의하는 것이다.
@@ -137,7 +138,7 @@ def part_transformation2_1(i_limit,PC1,PC2,p):
     p1 = PC1[strp:endp,:]#열은 모두 사용하고, 행은 strp번째에서 endp-1번째 행까지 사용한다.p1은 i번째 time instant의 3D 좌표값
     p2 = PC2[strp:endp,:]#열은 모두 사용하고, 행은 strp번째에서 endp-1번째 행까지 사용한다.p2은 warping function에 의해 예측된 j번째 time instant의 p값
     
-    _,_,p1_2 = get_pc_transformation2_1(p1,p2)#새로운 R, t를 반영하여 예측된 j번째 instance의 p값을 p1_2라 하고, R과 t는 넘긴다.
+    _,_,p1_2 = get_pc_transformation2_1(p1,p2, device)#새로운 R, t를 반영하여 예측된 j번째 instance의 p값을 p1_2라 하고, R과 t는 넘긴다.
     p2p = PC2[strp:endp,:]#열은 모두 사용하고, 행은 strp번째에서 endp-1번째 행까지 사용한다. 새로운 예측값이 아니라 과거의 예측값을 의미
     
     return p2p, p1_2#p2p는 과거의 예측값, p1_2는 새로운 R,t를 반영한 예측값
@@ -167,7 +168,7 @@ def gather_nd(params, indices):
     params = params.reshape((-1, *tuple(torch.tensor(params.size()[ndim:]))))
     
     return params[idx]
-def transform_depth_PCs_dp_based2_1(C,R,Rt,cen,K,Ki,origin,scaling,d_i,d_j,i_r1_c1_r2_c2,i_limit):
+def transform_depth_PCs_dp_based2_1(C,R,Rt,cen,K,Ki,origin,scaling,d_i,d_j,i_r1_c1_r2_c2,i_limit,device):
     d1 = d_i[0,...,0]#i번째 time instant의 깊이 정보
     d2 = d_j[0,...,0]#j번째 time instant의 깊이 정보
     
@@ -186,39 +187,39 @@ def transform_depth_PCs_dp_based2_1(C,R,Rt,cen,K,Ki,origin,scaling,d_i,d_j,i_r1_
     lambda1 = gather_nd(d1,indices1); #tf.gather_nd(params, indices, name=None),indices1에 따라 d1에서 값들을 모은다.
     lambda2 = gather_nd(d2,indices2); #tf.gather_nd(params, indices, name=None),indices2에 따라 d2에서 값들을 모은다.
     
-    PC1 = Depth2Points3D_transformed_vector_1(lambda1, indices1 , Rt, Ki, cen, origin, scaling)#25000 x 3, i번째의 reconstruction한 3D coordinate parameter을 받는다. Nx3
-    PC2 = Depth2Points3D_transformed_vector_1(lambda2, indices2 , Rt, Ki, cen, origin, scaling)#25000 x 3, j번째의 reconstruction한 3D coordinate parameter을 받는다. Nx3
+    PC1 = Depth2Points3D_transformed_vector_1(lambda1, indices1 , Rt, Ki, cen, origin, scaling,device)#25000 x 3, i번째의 reconstruction한 3D coordinate parameter을 받는다. Nx3
+    PC2 = Depth2Points3D_transformed_vector_1(lambda2, indices2 , Rt, Ki, cen, origin, scaling,device)#25000 x 3, j번째의 reconstruction한 3D coordinate parameter을 받는다. Nx3
     
-    PC2p, PC1_2 = part_transformation2_1(i_limit,PC1,PC2,0); #0번 part의 3D reconstruction 좌표들
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,1); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #1번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,2); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #2번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,3); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #3번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,4); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #4번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,5); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #5번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,6); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #6번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,7); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #7번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,8); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #8번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,9); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #9번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,10); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #10번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,11); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #11번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,12); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #12번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,13); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #13번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,14); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #14번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,15); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #15번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,16); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #16번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,17); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #17번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,18); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #18번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,19); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #19번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,20); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #20번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,21); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #21번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,22); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #22번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
-    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,23); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #23번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    PC2p, PC1_2 = part_transformation2_1(i_limit,PC1,PC2,0,device); #0번 part의 3D reconstruction 좌표들
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,1,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #1번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,2,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #2번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,3,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #3번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,4,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #4번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,5,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #5번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,6,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #6번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,7,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #7번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,8,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #8번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,9,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #9번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,10,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #10번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,11,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #11번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,12,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #12번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,13,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #13번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,14,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #14번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,15,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #15번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,16,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #16번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,17,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #17번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,18,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #18번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,19,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #19번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,20,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #20번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,21,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #21번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,22,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #22번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
+    p2p, p1_2 = part_transformation2_1(i_limit,PC1,PC2,23,device); PC2p = torch.cat([PC2p,p2p],0); PC1_2 = torch.cat([PC1_2,p1_2],0); #23번 part의 3D reconstruction 좌표들 그리고 tf.concat으로 행끼리 붙인다.
     
     return PC2p, PC1_2 #최종적으로 모든 실제 j번째 instant의 3D 좌표, warping으로 예측한 3D 좌표가 모두 concat으로 저장되었다. 그걸 출력한다.
 
 # *****************************************************************************************************
 
-def reproject_1(point3D, K,R,C):
+def reproject_1(point3D, K,R,C,device):
     # point3D is N*3 and M is 3*4
     # xy is N*2
     M = torch.mm(K,R)
@@ -228,7 +229,7 @@ def reproject_1(point3D, K,R,C):
     
     num_of_points = point3D.size()[1]
     
-    row_of_ones = torch.ones([1, num_of_points], dtype=torch.float32)
+    row_of_ones = torch.ones([1, num_of_points], dtype=torch.float32).to(device)
     
     xyz1 = torch.cat([point3D,row_of_ones],0)
     
@@ -254,15 +255,15 @@ def reproject_1(point3D, K,R,C):
 
 # *****************************************************************************************************
 
-def compute_dp_tr_3d_2d_loss2_1(d_i,d_j,i_r1_c1_r2_c2,i_limit,C,R,Rt,cen,K,Ki,origin,scaling):
-    PC2p, PC1_2 = transform_depth_PCs_dp_based2_1(C,R,Rt,cen,K,Ki,origin,scaling,d_i,d_j,i_r1_c1_r2_c2,i_limit)
+def compute_dp_tr_3d_2d_loss2_1(d_i,d_j,i_r1_c1_r2_c2,i_limit,C,R,Rt,cen,K,Ki,origin,scaling,device):
+    PC2p, PC1_2 = transform_depth_PCs_dp_based2_1(C,R,Rt,cen,K,Ki,origin,scaling,d_i,d_j,i_r1_c1_r2_c2,i_limit,device)
     
     d = torch.sub(PC2p, PC1_2)
     err_vec = torch.sqrt(torch.sum(d**2,1));
     loss3d = torch.mean(err_vec)
     
-    x2,_ = reproject_1(PC2p, K,R,C)
-    x1_2,_ = reproject_1(PC1_2, K,R,C)
+    x2,_ = reproject_1(PC2p, K,R,C,device)
+    x1_2,_ = reproject_1(PC1_2, K,R,C,device)
     
     d = torch.sub(x2, x1_2)
     err_vec = torch.sqrt(torch.sum(d**2,1));

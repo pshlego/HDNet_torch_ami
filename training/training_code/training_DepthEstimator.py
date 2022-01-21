@@ -87,9 +87,9 @@ with sess.as_default():
         print("Model restored.")
         
 ##  ********************** make the output folders ********************** 
-ck_pnts_dir = "../training_progress/model/DepthEstimator"
-log_dir = "../training_progress/"
-Vis_dir_rp  = "../training_progress/visualization/DepthEstimator/Tang/"
+ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/DepthEstimator"
+log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/"
+Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/DepthEstimator/Tang/"
 
 if not gfile.Exists(ck_pnts_dir):
     print("ck_pnts_dir created!")

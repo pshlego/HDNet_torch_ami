@@ -38,7 +38,7 @@ def gather_nd(params, indices):
     params = params.reshape((-1, *tuple(torch.tensor(params.size()[ndim:]))))
     return params[idx]
 # ***************************************************************************************************** when batch_size=8
-def depth2points3D_MB_1(output, Rt, Ki, cen, z_r, origin, scaling):
+def depth2points3D_MB_1(output, Rt, Ki, cen, z_r, origin, scaling, device):
     
     # Rt and Ki are 3*3, cen is 1*3, z_r and output are B*256*256, origin is B*2, scaling is B*1
     # point3D is 3*N
@@ -53,7 +53,7 @@ def depth2points3D_MB_1(output, Rt, Ki, cen, z_r, origin, scaling):
     good_output = torch.where(z_r, output, 1000000*torch.ones_like(output))#8 x 256 x 256 x 1,true인 부분은 ouput의 해당 위치의 값으로 채워지고, false인 부분은 1000000으로 채워진다.
     #Dlambda = torch.flatten(torch.flatten(torch.flatten(good_output, start_dim=2), start_dim=1), start_dim=0) # None, tf.gather_nd(params, indices, name=None),indices에 따라 indices의 위치에 있는 값들을 good_output에서 모은다.
     
-    Dlambda=gather_nd(good_output,dim=0,index=indices)
+    Dlambda=gather_nd(good_output,indices)
     num_of_points = Dlambda.size()[0] #None=524288, Dlambda의 행의 shape을 정수형 tensor로 반환.
     num_of_batches = z_r.size()[0] #B=8, z_r의 행의 shape를 정수형 tensor로 반환 
     num_of_points_in_each_batch = torch.div(num_of_points,num_of_batches).type(torch.int32) #65536, point의 개수를 batch의 수로 나누고, int32로 typecasting한다. 즉, 한 batch에 있는 point의 개수를 뜻한다. N/B
@@ -103,7 +103,7 @@ def depth2points3D_MB_1(output, Rt, Ki, cen, z_r, origin, scaling):
     xy_translated_scaled =torch.add(scaled_xy ,origin_2_rows) # 2 x None, 둘이 각 요소끼리 더한다.
     
          
-    xy1 = torch.cat([xy_translated_scaled,row_of_ones],0) #밑에가 모두 1인 3xNone matrix인데 생각해보면 이게 homogeneus representation인 것 같다.
+    xy1 = torch.cat([xy_translated_scaled.to(device),row_of_ones.to(device)],0) #밑에가 모두 1인 3xNone matrix인데 생각해보면 이게 homogeneus representation인 것 같다.
     
     cen1 = torch.mul(row_of_ones,cen[0])#1xNone인데 모든 요소가 cen[0]인 matrix
     cen2 = torch.mul(row_of_ones,cen[1])#1xNone인데 모든 요소가 cen[1]인 matrix
@@ -115,17 +115,17 @@ def depth2points3D_MB_1(output, Rt, Ki, cen, z_r, origin, scaling):
     Rt_Ki = torch.mm(Rt,Ki)#3 x 3,Rt는 그냥 identity matrix이고, Ki가 K 카메라 intrinsic camera parameter의 inverse matrix이다.
     Rt_Ki_xy1 = torch.mm(Rt_Ki,xy1)#3 x None, 이건 그냥 그 image 좌표 매트릭스랑 카메라 인트린식 좌표 매트릭스랑 곱한거 
     
-    point3D = torch.add(torch.mul(Dlambda3,Rt_Ki_xy1),cen_mat)#3 x None matrix이다. Dlamda3가 깊이인 것 같다. 그리거 모두 곱하고 cen_mat를 더해줘서 최종적으로 reconstruction한 3D point가 나온다.
+    point3D = torch.add(torch.mul(Dlambda3.to(device),Rt_Ki_xy1.to(device)),cen_mat.to(device))#3 x None matrix이다. Dlamda3가 깊이인 것 같다. 그리거 모두 곱하고 cen_mat를 더해줘서 최종적으로 reconstruction한 3D point가 나온다.
     
     return point3D, batches#point3D는 3xN이다. 그리고  1 x None, indicies를 batches에 저장했던 것도 출력한다.
 
 # *********************************************************************************************************
 
-def dmap_to_nmap_1(Y, Rt, R, Ki, cen, Z, origin, scaling):#Y=Batchsize x Image_Height x Image_Width x 1
+def dmap_to_nmap_1(Y, Rt, R, Ki, cen, Z, origin, scaling,device):#Y=Batchsize x Image_Height x Image_Width x 1
     BATCH_SIZE = Y.size()[0]#8, Y의 행의 구조를 1-d 정수형 텐서로 반환한다. Y의 행이 batchsize인가보다.
     IMAGE_HEIGHT = Y.size()[1]#256, Y의 열의 구조를 1-d 정수형 텐서로 반환한다. Y의 열이 image_height인가보다.
     
-    p3d, batches = depth2points3D_MB_1(Y, Rt, Ki, cen, Z, origin, scaling)# p3d: 3 x None, batches: 1 x None, 위에서 사용한 3D reconstruction 함수인 depth2points3D_MB를 사용하여 3xN과 1xN인 출력을 얻었다.
+    p3d, batches = depth2points3D_MB_1(Y, Rt, Ki, cen, Z, origin, scaling, device)# p3d: 3 x None, batches: 1 x None, 위에서 사용한 3D reconstruction 함수인 depth2points3D_MB를 사용하여 3xN과 1xN인 출력을 얻었다.
     
     p3d_map1 = p3d[0,...].view(BATCH_SIZE,IMAGE_HEIGHT,IMAGE_HEIGHT,1)#원래 None=B*HEIGHT*WIDTH였는데, 3xNone에서 첫번째 행을 선택해서 1xNone을 BxHeightxWidthx1로 reshape한다.
     p3d_map1 = torch.where(Z,p3d_map1,torch.zeros_like(p3d_map1))#그리고 tf.where()을 사용해서 Z가 true이면 그 위치에 해당하는 p3d_map1의 값을 넣고, false이면 0을 채운다.

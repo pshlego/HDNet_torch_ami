@@ -7,51 +7,52 @@ import torch.nn as nn
 import torch.nn.functional as F
 NUM_CH = [64,128,256,512,1024]
 KER_SZ = 3 
-def conv3x3(in_planes, out_planes, stride=1, padding=1):
-    return nn.Conv2d(in_planes, out_planes,kernel_size=KER_SZ, stride=stride,padding=padding, bias=False)
+def conv3x3(in_planes, out_planes,ks=KER_SZ, stride=1, padding=1):
+    return nn.Conv2d(in_planes, out_planes,kernel_size=ks, stride=stride,padding=padding, bias=False)
 class conv_layer(nn.Module):
-    def __init__(self, input_size, planes, stride=1, padding=1, bn=False):
+    def __init__(self, input_size, planes,ks=KER_SZ, stride=1, padding=1, bn=False, rl=True):
         super(conv_layer, self).__init__()
-        self.conv = conv3x3(input_size, planes, stride, padding=padding)
-        self.bn=bn
+        self.conv = conv3x3(input_size, planes,ks=ks, stride=stride, padding=padding)
+        self.bn = bn
         self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU()
+        self.relu = rl
+        self.relu1 = nn.ReLU(planes)
     def forward(self, x):
         out = self.conv(x)
         if self.bn:
             out=self.bn1(out)
-        out = self.relu(out)
+        if self.relu:    
+            out = self.relu1(out)
         return out
 class hourglass_refinement_1(nn.Module):
-    def __init__(self,input_size,stride=1,bn=True):
+    def __init__(self,input_size,stride=1,bn=True,rl=True):
         super(hourglass_refinement_1, self).__init__()
-        self.c0=conv_layer(input_size,NUM_CH[0],stride,bn=bn)
-        self.c1=conv_layer(NUM_CH[0], NUM_CH[0],stride,bn=bn)
-        self.c2=conv_layer(NUM_CH[0], NUM_CH[0],stride,bn=bn)
+        self.c0=conv_layer(input_size,NUM_CH[0],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c1=conv_layer(NUM_CH[0], NUM_CH[0],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c2=conv_layer(NUM_CH[0], NUM_CH[0],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.p0=nn.MaxPool2d(kernel_size=2, stride=2)
-        self.c3=conv_layer(NUM_CH[0],NUM_CH[1],stride,bn=bn)
+        self.c3=conv_layer(NUM_CH[0],NUM_CH[1],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.p1=nn.MaxPool2d(kernel_size=2, stride=2)
-        self.c4=conv_layer(NUM_CH[1],NUM_CH[2],stride,bn=bn)
+        self.c4=conv_layer(NUM_CH[1],NUM_CH[2],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.p2=nn.MaxPool2d(kernel_size=2, stride=2)
-        self.c5=conv_layer(NUM_CH[2],NUM_CH[3],stride,bn=bn)
+        self.c5=conv_layer(NUM_CH[2],NUM_CH[3],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.p3=nn.MaxPool2d(kernel_size=2, stride=2)
-        self.c6=conv_layer(NUM_CH[3],NUM_CH[4],stride,bn=bn)
-        self.c7=conv_layer(NUM_CH[4],NUM_CH[4],stride,bn=bn)
-        self.c8=conv_layer(NUM_CH[4],NUM_CH[3],stride,bn=bn)
+        self.c6=conv_layer(NUM_CH[3],NUM_CH[4],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c7=conv_layer(NUM_CH[4],NUM_CH[4],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c8=conv_layer(NUM_CH[4],NUM_CH[3],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.up1=nn.Upsample(size=32, mode='bilinear')
-        self.c9=conv_layer(NUM_CH[3]*2,NUM_CH[3],stride,bn=bn)
-        self.c10=conv_layer(NUM_CH[3],NUM_CH[2],stride,bn=bn)
+        self.c9=conv_layer(NUM_CH[3]*2,NUM_CH[3],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c10=conv_layer(NUM_CH[3],NUM_CH[2],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.up2=nn.Upsample(size=64, mode='bilinear')
-        self.c11=conv_layer(NUM_CH[2]*2,NUM_CH[2],stride,bn=bn)
-        self.c12=conv_layer(NUM_CH[2],NUM_CH[1],stride,bn=bn)
+        self.c11=conv_layer(NUM_CH[2]*2,NUM_CH[2],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c12=conv_layer(NUM_CH[2],NUM_CH[1],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.up3=nn.Upsample(size=128, mode='bilinear')
-        self.c13=conv_layer(NUM_CH[1]*2,NUM_CH[1],stride,bn=bn)
-        self.c14=conv_layer(NUM_CH[1],NUM_CH[0],stride,bn=bn)
+        self.c13=conv_layer(NUM_CH[1]*2,NUM_CH[1],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c14=conv_layer(NUM_CH[1],NUM_CH[0],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
         self.up4=nn.Upsample(size=256, mode='bilinear')
-        self.c15=conv_layer(NUM_CH[0]*2,NUM_CH[0],stride,bn=bn)
-        self.c16=conv_layer(NUM_CH[0],NUM_CH[0],stride,bn=bn)
-        self.c17=conv_layer(NUM_CH[0],1,stride,bn=bn)
-        self.padding_size = (64,64,64,64)
+        self.c15=conv_layer(NUM_CH[0]*2,NUM_CH[0],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c16=conv_layer(NUM_CH[0],NUM_CH[0],ks=KER_SZ,stride=stride,padding=1,bn=bn,rl=rl)
+        self.c17=conv_layer(NUM_CH[0],1,ks=1,stride=stride,padding=0,bn=False,rl=False)
     def forward(self, x):
         x = x.permute(0,3,1,2)
         out_0=self.c0(x) 
