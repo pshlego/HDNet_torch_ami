@@ -84,6 +84,3 @@ origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SI
 
 # loss3d_1,loss2d_1,PC2p_1,PC1_2_1 = compute_dp_tr_3d_2d_loss2_1(out2_1_tk_1,out2_2_tk_1,torch.Tensor(i_r1_c1_r2_c2_tk)[0,...].type(torch.int32),torch.Tensor(i_limit_tk)[0,...].type(torch.int32),C_1,torch.Tensor(R1n).type(torch.float32),torch.Tensor(Rt1n).type(torch.float32),torch.Tensor(cen1n).type(torch.float32),K_1,torch.Tensor(Ki1n).type(torch.float32),torch.Tensor(origin1n).type(torch.float32),torch.Tensor(scaling1n).type(torch.float32))
 # pdb.set_trace()
-
-
-#문병필
