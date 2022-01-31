@@ -19,7 +19,8 @@ from utils.hourglass_net_normal_singleStack_torch import hourglass_normal_predic
 from utils.hourglass_net_depth_singleStack import hourglass_refinement
 from utils.hourglass_net_depth_singleStack_torch import hourglass_refinement_1
 from utils.IO import get_renderpeople_patch, get_camera, get_tiktok_patch, write_prediction, write_prediction_normal, save_prediction_png_normal#data의 input, output을 담당하는 함수들 import
-#from utils.Loss_functions import calc_loss_normal2, calc_loss, calc_loss_d_refined_mask#loss function이 정의되어있는 함수들
+from utils.Loss_functions import calc_loss_normal2, calc_loss, calc_loss_d_refined_mask#loss function이 정의되어있는 함수들
+from utils.Loss_functions_torch import calc_loss_normal2_1, calc_loss_1, calc_loss_d_refined_mask_1
 from utils.Geometry_MB import dmap_to_nmap#depth를 normal로 바꿔주는 함수들 정의
 from utils.Geometry_MB_torch import dmap_to_nmap_1#depth를 normal로 바꿔주는 함수들 정의
 from utils.denspose_transform_functions import compute_dp_tr_3d_2d_loss2 #self-supervise할 때 필요한 warping을 통해 구현된 loss function
@@ -29,8 +30,12 @@ import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
 from functions import showOperation
+torch.set_printoptions(precision=8)
 os.environ["CUDA_VISIBLE_DEVICES"]="6"#6번 GPU를 씁니다.
-
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print('Device:', device)  # 출력결과: cuda
+print('Count of using GPUs:', torch.cuda.device_count())
+print('Current cuda device:', torch.cuda.current_device())
 # ********************** change your variables **********************
 IMAGE_HEIGHT = 256#IMAGE의 HEIGHT는 256이고
 IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
@@ -40,9 +45,43 @@ rp_path = "/home/ug_psh/AMILab/training_data/Tang_data"#Tang_data의 경로
 tk_path = "/home/ug_psh/AMILab/training_data/tiktok_data"#tiktok_data의 경로
 RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
-
-#(X_1, X1, Y1, N1, Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, IMAGE_HEIGHT,IMAGE_WIDTH)
+(X_1, X1, Y1, N1, Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, IMAGE_HEIGHT,IMAGE_WIDTH)
 (X_1_tk, X1_tk, N1_tk, Z1_tk, DP1_tk, Z1_3_tk, X_2_tk, X2_tk, N2_tk, Z2_tk, DP2_tk, Z2_3_tk, i_r1_c1_r2_c2_tk, i_limit_tk, frms_tk, frms_neighbor_tk) = get_tiktok_patch(tk_path, BATCH_SIZE, IMAGE_HEIGHT,IMAGE_WIDTH)
+
+model_1 = hourglass_refinement_1(9).to(device)
+out2_1_1 = model_1(torch.Tensor(X_1).to(device))
+nmap1 = dmap_to_nmap(tf.convert_to_tensor(out2_1_1.detach().cpu().numpy()), tf.convert_to_tensor(Rt1n,dtype=tf.float32), tf.convert_to_tensor(R1n,dtype=tf.float32), tf.convert_to_tensor(Ki1n,dtype=tf.float32), tf.convert_to_tensor(cen1n,dtype=tf.float32), tf.convert_to_tensor(Z1,dtype=tf.bool), tf.convert_to_tensor(origin1n,dtype=tf.float32), tf.convert_to_tensor(scaling1n,dtype=tf.float32))
+total_loss1_d = calc_loss(tf.convert_to_tensor(out2_1_1.detach().cpu().numpy()),tf.convert_to_tensor(Y1,dtype=tf.float32),tf.convert_to_tensor(Z1,dtype=tf.bool))
+total_loss2_d = calc_loss_d_refined_mask(tf.convert_to_tensor(out2_1_1.detach().cpu().numpy()),tf.convert_to_tensor(Y1,dtype=tf.float32),tf.convert_to_tensor(Z1,dtype=tf.bool))
+total_loss_n = calc_loss_normal2(nmap1,tf.convert_to_tensor(N1,dtype=tf.float32),tf.convert_to_tensor(Z1,dtype=tf.bool))
+total_loss_rp = 2*total_loss1_d + total_loss2_d + total_loss_n
+origin1n = torch.Tensor(origin1n).type(torch.float32).to(device)
+scaling1n = torch.Tensor(scaling1n).type(torch.float32).to(device)
+C1n = torch.Tensor(C1n).type(torch.float32).to(device)
+cen1n = torch.Tensor(cen1n).type(torch.float32).to(device)
+K1n = torch.Tensor(K1n).type(torch.float32).to(device)
+Ki1n = torch.Tensor(Ki1n).type(torch.float32).to(device)
+M1n = torch.Tensor(M1n).type(torch.float32).to(device)
+R1n = torch.Tensor(R1n).type(torch.float32).to(device)
+Rt1n = torch.Tensor(Rt1n).type(torch.float32).to(device)
+
+X_1 = torch.Tensor(X_1).type(torch.float32).to(device)
+X1 = torch.Tensor(X1).type(torch.float32).to(device)
+Y1 = torch.Tensor(Y1).type(torch.float32).to(device)
+N1 = torch.Tensor(N1).type(torch.float32).to(device)
+Z1 = torch.Tensor(Z1).type(torch.bool).to(device)
+DP1 = torch.Tensor(DP1).type(torch.float32).to(device)
+Z1_3 = torch.Tensor(Z1_3).type(torch.bool).to(device)
+
+#print("model Time taken: %.2fs" % (time.time() - start_time))
+#start_time = time.time()
+nmap1_1 = dmap_to_nmap_1(out2_1_1, Rt1n, R1n, Ki1n, cen1n, Z1,origin1n, scaling1n,device).type(torch.float32).to(device)
+#print("dmap to nmap Time taken: %.2fs" % (time.time() - start_time))
+#start_time = time.time()
+total_loss1_d_1 = calc_loss_1(out2_1_1,Y1,Z1)
+total_loss2_d_1 = calc_loss_d_refined_mask_1(out2_1_1,Y1,Z1,device)
+total_loss_n_1 = calc_loss_normal2_1(nmap1_1,N1,Z1)
+total_loss_rp_1 = 2*total_loss1_d_1.to(device) + total_loss2_d_1.to(device) + total_loss_n_1.to(device)
 
 # ********************** Hourglass_network **********************
 
@@ -83,4 +122,4 @@ origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SI
 # loss3d,loss2d,PC2p,PC1_2 = compute_dp_tr_3d_2d_loss2(tf.convert_to_tensor(out2_1_tk_1.detach().numpy()),tf.convert_to_tensor(out2_2_tk_1.detach().numpy()),tf.convert_to_tensor(np.array(i_r1_c1_r2_c2_tk),dtype=tf.int32)[0,...],tf.convert_to_tensor(np.array(i_limit_tk),dtype=tf.int32)[0,...],C,tf.convert_to_tensor(R1n,dtype=tf.float32),tf.convert_to_tensor(Rt1n,dtype=tf.float32),tf.convert_to_tensor(cen1n,dtype=tf.float32),K,tf.convert_to_tensor(Ki1n,dtype=tf.float32),tf.convert_to_tensor(origin1n,dtype=tf.float32),tf.convert_to_tensor(scaling1n,dtype=tf.float32))
 
 # loss3d_1,loss2d_1,PC2p_1,PC1_2_1 = compute_dp_tr_3d_2d_loss2_1(out2_1_tk_1,out2_2_tk_1,torch.Tensor(i_r1_c1_r2_c2_tk)[0,...].type(torch.int32),torch.Tensor(i_limit_tk)[0,...].type(torch.int32),C_1,torch.Tensor(R1n).type(torch.float32),torch.Tensor(Rt1n).type(torch.float32),torch.Tensor(cen1n).type(torch.float32),K_1,torch.Tensor(Ki1n).type(torch.float32),torch.Tensor(origin1n).type(torch.float32),torch.Tensor(scaling1n).type(torch.float32))
-# pdb.set_trace()
+pdb.set_trace()

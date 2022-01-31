@@ -13,7 +13,7 @@ import math# 수학 관련 함수들이 들어있는 라이브러리
 from utils.hourglass_net_normal_singleStack import hourglass_normal_prediction#depth estimator를 import한다.
 from utils.hourglass_net_normal_singleStack_torch import hourglass_normal_prediction_1#depth estimator를 import한다.
 from utils.IO import get_renderpeople_patch, get_camera, get_tiktok_patch, write_prediction, write_prediction_normal, save_prediction_png_normal#data의 input, output을 담당하는 함수들 import
-from utils.Loss_functions_torch import calc_loss_normal2_1
+from utils.Loss_functions_torch import calc_loss_normal2_1, calc_loss_1, calc_loss_d_refined_mask_1
 from utils.Geometry_MB import dmap_to_nmap#depth를 normal로 바꿔주는 함수들 정의
 from utils.denspose_transform_functions import compute_dp_tr_3d_2d_loss2 #self-supervise할 때 필요한 warping을 통해 구현된 loss function
 import torchvision.datasets as dsets
@@ -21,6 +21,10 @@ import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
 import warnings
+import time
+import wandb
+import gc
+wandb.init(project="training_NormalEstimator_pytorch", entity="parksh0712")
 warnings.filterwarnings('ignore')
 print("You are using torch version ",torch.__version__)#당신은 torch version 몇을 쓰고 있습니다.
 ## ********************** Set gpu **********************
@@ -32,15 +36,23 @@ print('Current cuda device:', torch.cuda.current_device())
 ## ********************** change your variables **********************
 IMAGE_HEIGHT = 256#IMAGE의 HEIGHT는 256이고
 IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
-BATCH_SIZE = 8#여기서는 BATCH_SIZE를 8로 하겠습니다.
-ITERATIONS = 100000000#이터레이션의 횟수
+BATCH_SIZE = 10#여기서는 BATCH_SIZE를 8로 하겠습니다.
+ITERATIONS = 18*380#이터레이션의 횟수
+LR=0.001
+wandb.config = {
+  "IMAGE_HEIGHT" : IMAGE_HEIGHT,
+  "IMAGE_WIDTH": IMAGE_WIDTH,
+  "BATCH_SIZE": BATCH_SIZE,
+  "ITERATIONS" : ITERATIONS,
+  "Learning_Rate" : LR
+}
 rp_path = "/home/ug_psh/HDNet_torch_ami/training_data/Tang_data"#Tang_data의 경로
 RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
 ## **************************** define the network ****************************
 model = hourglass_normal_prediction_1(3).to(device)
 ## ****************************optimizer****************************
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR, betas=(0.9, 0.999), eps=1e-08)
 ##  ********************** make the output folders ********************** 
 ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/NormalEstimator"
 log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/"
@@ -59,23 +71,33 @@ if (path.exists(log_dir+"trainLog.txt")):
     os.remove(log_dir+"trainLog.txt")
     
 ##  ********************** Run the training **********************     
+start_time_1 = time.time()
 for itr in range(ITERATIONS):
+    #start_time = time.time()
     (X_1, X1, Y1, N1, Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, IMAGE_HEIGHT,IMAGE_WIDTH)#renderpeople에서 GT를 가져온다.
+    #print("get_render Time taken: %.2fs" % (time.time() - start_time))
     optimizer.zero_grad()
+    #start_time = time.time()
     out2_1_1_normal = model(torch.Tensor(X1).type(torch.float32).to(device))
+    #print("model Time taken: %.2fs" % (time.time() - start_time))
+    #start_time = time.time()
     total_loss_n = calc_loss_normal2_1(out2_1_1_normal.type(torch.float32).to(device),torch.Tensor(N1).type(torch.float32).to(device),torch.Tensor(Z1).type(torch.bool).to(device))
     total_loss = total_loss_n.to(device)
-    
+    #print("calc loss Time taken: %.2fs" % (time.time() - start_time))
+    #start_time = time.time()
     total_loss.backward()
     optimizer.step()
-    
+    #print("gradient descent Time taken: %.2fs" % (time.time() - start_time))
+    gc.collect()
+    torch.cuda.empty_cache()
     if itr%10 == 0:
         f_err = open(log_dir+"trainLog.txt","a")
         f_err.write("%d %g\n" % (itr,total_loss))
         f_err.close()
         print("")
-        print("iteration %3d, depth refinement training loss is %g." %(itr,  total_loss))
-        
+        print("iteration %3d, normal prediction training loss is %g." %(itr,  total_loss))
+        print("10 iter Time taken: %.2fs" % (time.time() - start_time_1))
+        start_time_1 = time.time()
     if itr % 100 == 0:
         # visually compare the first sample in the batch between predicted and ground truth
         fidx = [int(frms[0])]
@@ -83,8 +105,12 @@ for itr in range(ITERATIONS):
         write_prediction_normal(Vis_dir_rp,output.detach().numpy(),itr,fidx,Z1)
         save_prediction_png_normal (output[0,...].detach().numpy(),X1,Z1,Z1_3,Vis_dir_rp,itr,fidx)
         
-    if itr % 10000 == 0 and itr != 0:
-        torch.save(model.state_dict(), ck_pnts_dir +"/model_" + str(itr) +"/model_" + str(itr) + ".pt")#checkpoint만들기
-
+    if itr % 1000 == 0 and itr != 0:
+        torch.save(model.state_dict(), ck_pnts_dir +"/model_" + str(itr) + ".pt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))    
+    if itr == (18*380-2):
+        torch.save(model.state_dict(), ck_pnts_dir + "/model_" + str(itr) + ".pt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
+    wandb.log({"loss": total_loss})
 
 

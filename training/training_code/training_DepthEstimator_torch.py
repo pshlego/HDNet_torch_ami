@@ -21,6 +21,10 @@ import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
 import warnings
+import time
+import wandb
+import gc
+wandb.init(project="training_Depthestimator_pytorch", entity="parksh0712")
 warnings.filterwarnings('ignore')
 print("You are using torch version ",torch.__version__)#당신은 torch version 몇을 쓰고 있습니다.
 ## ********************** Set gpu **********************
@@ -32,15 +36,32 @@ print('Current cuda device:', torch.cuda.current_device())
 ## ********************** change your variables ********************** 
 IMAGE_HEIGHT = 256#IMAGE의 HEIGHT는 256이고
 IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
-BATCH_SIZE = 8#여기서는 BATCH_SIZE를 8로 하겠습니다.
-ITERATIONS = 100000000#이터레이션의 횟수
+BATCH_SIZE = 10#여기서는 BATCH_SIZE를 8로 하겠습니다.
+ITERATIONS = 18*380#이터레이션의 횟수
+LR = 0.001
+wandb.config = {
+  "IMAGE_HEIGHT" : IMAGE_HEIGHT,
+  "IMAGE_WIDTH": IMAGE_WIDTH,
+  "BATCH_SIZE": BATCH_SIZE,
+  "ITERATIONS" : ITERATIONS,
+  "Learning_Rate" : LR
+}
 rp_path = "/home/ug_psh/HDNet_torch_ami/training_data/Tang_data"#Tang_data의 경로
 RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
+origin1n = torch.Tensor(origin1n).type(torch.float32).to(device)
+scaling1n = torch.Tensor(scaling1n).type(torch.float32).to(device)
+C1n = torch.Tensor(C1n).type(torch.float32).to(device)
+cen1n = torch.Tensor(cen1n).type(torch.float32).to(device)
+K1n = torch.Tensor(K1n).type(torch.float32).to(device)
+Ki1n = torch.Tensor(Ki1n).type(torch.float32).to(device)
+M1n = torch.Tensor(M1n).type(torch.float32).to(device)
+R1n = torch.Tensor(R1n).type(torch.float32).to(device)
+Rt1n = torch.Tensor(Rt1n).type(torch.float32).to(device)
 ## **************************** define the network ****************************
 model = hourglass_refinement_1(9).to(device)
 ## ****************************optimizer****************************
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08)
+optimizer = torch.optim.Adam(model.parameters(), lr=LR, betas=(0.9, 0.999), eps=1e-10)
 ##  ********************** make the output folders ********************** 
 ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/DepthEstimator"
 log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/"
@@ -48,7 +69,6 @@ Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/visualizat
 
 if not path.exists(ck_pnts_dir):
     print("ck_pnts_dir created!")
-
     os.makedirs(ck_pnts_dir)
 
 if not path.exists(Vis_dir_rp):
@@ -57,38 +77,66 @@ if not path.exists(Vis_dir_rp):
     
 if (path.exists(log_dir+"trainLog.txt")):
     os.remove(log_dir+"trainLog.txt")    
-##  ********************** Run the training ********************** 
+##  ********************** Run the training **********************
+start_time_1 = time.time()
 for itr in range(ITERATIONS):
+    #start_time = time.time()
     (X_1, X1, Y1, N1, Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, IMAGE_HEIGHT,IMAGE_WIDTH)#renderpeople에서 GT를 가져온다.
+    #print("get_render Time taken: %.2fs" % (time.time() - start_time))
     optimizer.zero_grad()
-    out2_1 = model(torch.Tensor(X_1).type(torch.float32).to(device))
-    nmap1 = dmap_to_nmap_1(out2_1.type(torch.float32).to(device), torch.Tensor(Rt1n).type(torch.float32).to(device), torch.Tensor(R1n).type(torch.float32).to(device), torch.Tensor(Ki1n).type(torch.float32).to(device), torch.Tensor(cen1n).type(torch.float32).to(device), torch.Tensor(Z1).type(torch.bool).to(device), torch.Tensor(origin1n).type(torch.float32).to(device), torch.Tensor(scaling1n).type(torch.float32).to(device),device)
-    total_loss1_d = calc_loss_1(out2_1,torch.Tensor(Y1).type(torch.float32).to(device),torch.Tensor(Z1).type(torch.bool).to(device))
-    total_loss2_d = calc_loss_d_refined_mask_1(out2_1,torch.Tensor(Y1).type(torch.float32).to(device),torch.Tensor(Z1).type(torch.bool).to(device))
-    total_loss_n = calc_loss_normal2_1(nmap1,torch.Tensor(N1).type(torch.float32).to(device),torch.Tensor(Z1).type(torch.bool).to(device))
-    total_loss_rp = 2*total_loss1_d + total_loss2_d + total_loss_n
+    X_1 = torch.Tensor(X_1).type(torch.float32).to(device)
+    X1 = torch.Tensor(X1).type(torch.float32).to(device)
+    Y1 = torch.Tensor(Y1).type(torch.float32).to(device)
+    N1 = torch.Tensor(N1).type(torch.float32).to(device)
+    Z1 = torch.Tensor(Z1).type(torch.bool).to(device)
+    Z1_3 = torch.Tensor(Z1_3).type(torch.bool).to(device)
+    #start_time = time.time()
+    out2_1 = model(X_1)
+    #print("model Time taken: %.2fs" % (time.time() - start_time))
+    #start_time = time.time()
+    #with torch.no_grad():
+    nmap1 = dmap_to_nmap_1(out2_1, Rt1n, R1n, Ki1n, cen1n, Z1,origin1n, scaling1n,device).type(torch.float32)
+    #print("dmap to nmap Time taken: %.2fs" % (time.time() - start_time))
+    #start_time = time.time()
+    total_loss1_d = calc_loss_1(out2_1,Y1,Z1)
+    total_loss2_d = calc_loss_d_refined_mask_1(out2_1,Y1,Z1,device)
+    total_loss_n = calc_loss_normal2_1(nmap1,N1,Z1)
+    total_loss_rp = 2*total_loss1_d.to(device) + total_loss2_d.to(device) + total_loss_n.to(device)
     total_loss=total_loss_rp.to(device)
+    #total_loss_rp=total_loss2_d
+    #total_loss=total_loss_rp.to(device)
+    #print("calc loss Time taken: %.2fs" % (time.time() - start_time))
+    start_time = time.time()
     total_loss.backward()
     optimizer.step()
+    #print("gradient descent Time taken: %.2fs" % (time.time() - start_time))
+    gc.collect()
+    torch.cuda.empty_cache()
     if itr%10 == 0:
         f_err = open(log_dir+"trainLog.txt","a")
-        f_err.write("%d %g\n" % (itr,total_loss_rp))
+        f_err.write("%d %g\n" % (itr,total_loss_rp.cpu().detach().numpy()))
         f_err.close()
         print("")
-        print("iteration %3d, depth refinement training loss is %g." %(itr,  total_loss_rp))
-        
+        print("iteration %3d, depth refinement training loss is %g." %(itr,  total_loss_rp.cpu().detach().numpy()))
+        print("10 iter Time taken: %.2fs" % (time.time() - start_time_1))
+        start_time_1 = time.time()
     if itr % 100 == 0:
         fidx = [int(frms[0])]
-        output=out2_1.cpu()
-        nmap1_pred=nmap1.cpu()
-        write_prediction(Vis_dir_rp,output.detach().numpy(),itr,fidx,Z1);
-        write_prediction_normal(Vis_dir_rp,nmap1_pred.detach().numpy(),itr,fidx,Z1)
-        save_prediction_png (output[0,...,0].detach().numpy(),nmap1_pred[0,...].detach().numpy(),X1,Z1,Z1_3,Vis_dir_rp,itr,fidx,0.99)
-
-        
-    if itr % 10000 == 0 and itr != 0:
-        torch.save(model.state_dict(), ck_pnts_dir +"/model_" + str(itr) + "/model_" + str(itr) + ".pt")#checkpoint만들기
-
-
+        prediction1=out2_1.cpu().detach().numpy()
+        z1_cpu=Z1.cpu().detach().numpy();
+        x1_cpu=X1.cpu().detach().numpy()
+        z1_3_cpu=Z1_3.cpu().detach().numpy()
+        nmap1_cpu=nmap1.cpu().detach().numpy()
+        write_prediction(Vis_dir_rp,prediction1,itr,fidx,z1_cpu);
+        write_prediction_normal(Vis_dir_rp,nmap1_cpu,itr,fidx,z1_cpu)
+        save_prediction_png (prediction1[0,...,0],nmap1_cpu[0,...],x1_cpu,z1_cpu,z1_3_cpu,Vis_dir_rp,itr,fidx,0.99)      
+    if itr % 1000 == 0 and itr != 0:
+        torch.save(model.state_dict(), ck_pnts_dir + "/model_" + str(itr) + ".pt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr)) 
+    if itr == (18*380-2):
+        torch.save(model.state_dict(), ck_pnts_dir + "/model_" + str(itr) + ".pt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
+    wandb.log({"loss": total_loss_rp.cpu().detach().numpy()})
+    
 
 

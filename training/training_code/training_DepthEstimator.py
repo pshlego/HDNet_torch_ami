@@ -20,16 +20,28 @@ from utils.IO import get_renderpeople_patch, get_camera, get_tiktok_patch, write
 from utils.Loss_functions import calc_loss_normal2, calc_loss, calc_loss_d_refined_mask#loss function이 정의되어있는 함수들
 from utils.Geometry_MB import dmap_to_nmap#depth를 normal로 바꿔주는 함수들 정의
 from utils.denspose_transform_functions import compute_dp_tr_3d_2d_loss2#self-supervise할 때 필요한 warping을 통해 구현된 loss function
-
+import time
+import wandb
+import gc
+import pdb
+wandb.init(project="training_Depthestimator_tensorflow", entity="parksh0712")
 print("You are using tensorflow version ",tf.VERSION)#당신은 tensorflow version 몇을 쓰고 있습니다.
-os.environ["CUDA_VISIBLE_DEVICES"]="6"#6번 GPU를 씁니다.
+os.environ["CUDA_VISIBLE_DEVICES"]="7"#6번 GPU를 씁니다.
 
 ## ********************** change your variables ********************** 
 IMAGE_HEIGHT = 256#IMAGE의 HEIGHT는 256이고
 IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
-BATCH_SIZE = 8#여기서는 BATCH_SIZE를 8로 하겠습니다.
-ITERATIONS = 100000000#이터레이션의 횟수
-rp_path = "/home/ug_psh/AMILab/training_data/Tang_data"#Tang_data의 경로
+BATCH_SIZE = 10#여기서는 BATCH_SIZE를 8로 하겠습니다.
+ITERATIONS = 18*380#이터레이션의 횟수
+LR = 0.001
+wandb.config = {
+  "IMAGE_HEIGHT" : IMAGE_HEIGHT,
+  "IMAGE_WIDTH": IMAGE_WIDTH,
+  "BATCH_SIZE": BATCH_SIZE,
+  "ITERATIONS" : ITERATIONS,
+  "Learning_Rate" : LR
+}
+rp_path = "/home/ug_psh/HDNet_torch_ami/training_data/Tang_data"#Tang_data의 경로
 RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
 
@@ -85,7 +97,7 @@ with sess.as_default():
 #         saver = tf.train.import_meta_graph(pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt.meta')
 #         saver.restore(sess,pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt')
         print("Model restored.")
-        
+    
 ##  ********************** make the output folders ********************** 
 ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/DepthEstimator"
 log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/"
@@ -102,24 +114,56 @@ if not gfile.Exists(Vis_dir_rp):
 if (path.exists(log_dir+"trainLog.txt")):
     os.remove(log_dir+"trainLog.txt")
 
-    
+start_time = time.time()   
 ##  ********************** Run the training ********************** 
+
 for itr in range(ITERATIONS):
     (X_1, X1, Y1, N1, 
      Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, 
                                                   IMAGE_HEIGHT,IMAGE_WIDTH)#renderpeople에서 GT를 가져온다.
-    
-
-    (_,loss_val,prediction1,nmap1_pred) = sess.run([train_step,total_loss,out2_1,nmap1],
+    (_,prediction1,loss_val,nmap1_pred) = sess.run([train_step,out2_1,total_loss,nmap1],
                                                   feed_dict={x1:X_1,y1:Y1,n1:N1,z1:Z1,
                                                              Rt:Rt1n, Ki:Ki1n,cen:cen1n, R:R1n,
-                                                             origin:origin1n,scaling:scaling1n})#iteration마다 sess.run으로 graph를 실행시킨다.
+                                                             origin:origin1n,scaling:scaling1n})
+    # start_time_1 = time.time()
+    # (X_1, X1, Y1, N1, 
+    #  Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, 
+    #                                               IMAGE_HEIGHT,IMAGE_WIDTH)#renderpeople에서 GT를 가져온다.
+    # print("get render Time taken: %.2fs" % (time.time() - start_time_1))
+    # start_time_1 = time.time()
+    # (_) = sess.run(train_step,
+    #                                               feed_dict={x1:X_1,y1:Y1,n1:N1,z1:Z1,
+    #                                                          Rt:Rt1n, Ki:Ki1n,cen:cen1n, R:R1n,
+    #                                                          origin:origin1n,scaling:scaling1n})#iteration마다 sess.run으로 graph를 실행시킨다.
+    # print("train_step Time taken: %.2fs" % (time.time() - start_time_1))
+    # start_time_1 = time.time()
+    # (nmap1_pred) = sess.run(nmap1,
+    #                                               feed_dict={x1:X_1,y1:Y1,n1:N1,z1:Z1,
+    #                                                          Rt:Rt1n, Ki:Ki1n,cen:cen1n, R:R1n,
+    #                                                          origin:origin1n,scaling:scaling1n})
+    # print("nmap Time taken: %.2fs" % (time.time() - start_time_1))
+    # start_time_1 = time.time()
+    # (prediction1) = sess.run(out2_1,
+    #                                               feed_dict={x1:X_1,y1:Y1,n1:N1,z1:Z1,
+    #                                                          Rt:Rt1n, Ki:Ki1n,cen:cen1n, R:R1n,
+    #                                                          origin:origin1n,scaling:scaling1n})
+    # print("prediction Time taken: %.2fs" % (time.time() - start_time_1))
+    # start_time_1 = time.time()
+    # (loss_val) = sess.run(total_loss,
+    #                                               feed_dict={x1:X_1,y1:Y1,n1:N1,z1:Z1,
+    #                                                          Rt:Rt1n, Ki:Ki1n,cen:cen1n, R:R1n,
+    #                                                          origin:origin1n,scaling:scaling1n})
+    # print("loss_val Time taken: %.2fs" % (time.time() - start_time_1))
+    #pdb.set_trace()
+    wandb.log({'loss': loss_val})
     if itr%10 == 0:
         f_err = open(log_dir+"trainLog.txt","a")
         f_err.write("%d %g\n" % (itr,loss_val))
         f_err.close()
         print("")
         print("iteration %3d, depth refinement training loss is %g." %(itr,  loss_val))
+        print("10 iter Time taken: %.2fs" % (time.time() - start_time))
+        start_time = time.time()
         
     if itr % 100 == 0:
         fidx = [int(frms[0])]
@@ -128,8 +172,14 @@ for itr in range(ITERATIONS):
         save_prediction_png (prediction1[0,...,0],nmap1_pred[0,...],X1,Z1,Z1_3,Vis_dir_rp,itr,fidx,0.99)
 
         
-    if itr % 10000 == 0 and itr != 0:
-        save_path = saver.save(sess,ck_pnts_dir+"/model_"+str(itr)+"/model_"+str(itr)+".ckpt")#checkpoint만들기
+    if itr % 1000 == 0 and itr != 0:
+        save_path = saver.save(sess,ck_pnts_dir+"/model_"+str(itr)+".ckpt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
+        
+    if itr == (18*380-2):
+        save_path = saver.save(sess,ck_pnts_dir+"/model_"+str(itr)+".ckpt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
+    
 
 
 

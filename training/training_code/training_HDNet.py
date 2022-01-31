@@ -20,17 +20,29 @@ from utils.IO import get_renderpeople_patch, get_camera, get_tiktok_patch, write
 from utils.Loss_functions import calc_loss_normal2, calc_loss, calc_loss_d_refined_mask#loss function이 정의되어있는 함수들
 from utils.Geometry_MB import dmap_to_nmap#depth를 normal로 바꿔주는 함수들 정의
 from utils.denspose_transform_functions import compute_dp_tr_3d_2d_loss2 #self-supervise할 때 필요한 warping을 통해 구현된 loss function
-
+import wandb
+import gc
+import time
+wandb.init(project="training_HDNet_tensorflow", entity="parksh0712")
+gc.collect()
 print("You are using tensorflow version ",tf.VERSION)#당신은 tensorflow version 몇을 쓰고 있습니다.
-os.environ["CUDA_VISIBLE_DEVICES"]="6"#6번 GPU를 씁니다.
+os.environ["CUDA_VISIBLE_DEVICES"]="7"#6번 GPU를 씁니다.
 
 ## ********************** change your variables **********************
 IMAGE_HEIGHT = 256#IMAGE의 HEIGHT는 256이고
 IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
 BATCH_SIZE = 1#여기서는 BATCH_SIZE를 1로 하겠습니다.
-ITERATIONS = 100000000#이터레이션의 횟수
+ITERATIONS = 30*380#이터레이션의 횟수
+LR = 0.001
+wandb.config = {
+  "IMAGE_HEIGHT" : IMAGE_HEIGHT,
+  "IMAGE_WIDTH": IMAGE_WIDTH,
+  "BATCH_SIZE": BATCH_SIZE,
+  "ITERATIONS" : ITERATIONS,
+  "Learning_Rate" : LR
+}
+pre_ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/DepthEstimator"
 
-pre_ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/model/tensorflow/depth_prediction"
 model_num = '1920000'
 model_num_int = 1920000
 
@@ -127,15 +139,15 @@ with sess.as_default():
     with refineNet_graph.as_default():
         tf.global_variables_initializer().run()
         saver = tf.train.Saver()
-#        saver = tf.train.import_meta_graph(pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt.meta')
-#        saver.restore(sess,pre_ck_pnts_dir+'/model_'+model_num+'/model_'+model_num+'.ckpt')
+        saver = tf.train.import_meta_graph(pre_ck_pnts_dir+'/model_6000.ckpt.meta')
+        saver.restore(sess,pre_ck_pnts_dir+'/model_6000.ckpt')
         print("Model restored.")
         
 ##  ********************** make the output folders ********************** 
-ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/DepthEstimator"
+ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/HDNet"
 log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/"
 Vis_dir  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/HDNet/tiktok/"
-Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/DepthEstimator/Tang/"
+Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/visualization/HDNet/Tang/"
 
 if not gfile.Exists(ck_pnts_dir):
     print("ck_pnts_dir created!")
@@ -153,7 +165,8 @@ if (path.exists(log_dir+"trainLog.txt")):
     os.remove(log_dir+"trainLog.txt")
 
     
-##  ********************** Run the training **********************     
+##  ********************** Run the training **********************  
+start_time_1 = time.time()   
 for itr in range(ITERATIONS):
     (X_1, X1, Y1, N1, 
      Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, 
@@ -174,13 +187,15 @@ for itr in range(ITERATIONS):
                                                              x2_tk:X_2_tk,n2_tk:N2_tk,z2_tk:Z2_tk,
                                                              i_r1_c1_r2_c2:i_r1_c1_r2_c2_tk,
                                                              i_limit:i_limit_tk})#위에서 정의한 graph를 실행한다.
+    wandb.log({'loss': loss_val})
     if itr%10 == 0:
         f_err = open(log_dir+"trainLog.txt","a")
         f_err.write("%d %g\n" % (itr,loss_val))
         f_err.close()
         print("")
         print("iteration %3d, depth refinement training loss is %g." %(itr,  loss_val))
-        
+        print("10 iter Time taken: %.2fs" % (time.time() - start_time_1))
+        start_time_1 = time.time()
     if itr % 100 == 0:
         # visually compare the first sample in the batch between predicted and ground truth
         fidx = [int(frms[0])]
@@ -194,10 +209,12 @@ for itr in range(ITERATIONS):
         write_prediction_normal(Vis_dir,nmap1_pred_tk,itr,fidx,Z1_tk)
         save_prediction_png (prediction1_tk[0,...,0],nmap1_pred_tk[0,...],X1_tk,Z1_tk,Z1_3_tk,Vis_dir,itr,fidx,1)
 
-    if itr % 10000 == 0 and itr != 0:
-        save_path = saver.save(sess,ck_pnts_dir+"/model_"+str(itr)+"/model_"+str(itr)+".ckpt")
-
-
+    if itr % 1000 == 0 and itr != 0:
+        save_path = saver.save(sess,ck_pnts_dir+"/model_"+str(itr)+".ckpt")
+        print("iteration %3d, checkpoint save." %(itr))    
+    if itr == (ITERATIONS-2):
+        save_path = saver.save(sess,ck_pnts_dir+"/model_"+str(itr)+".ckpt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
 
 
 

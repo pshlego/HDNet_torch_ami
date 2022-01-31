@@ -22,7 +22,12 @@ import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
-
+import time
+import wandb
+import gc 
+wandb.init(project="training_HDNet_pytorch", entity="parksh0712")
+gc.collect()
+torch.cuda.empty_cache()
 print("You are using torch version ",torch.__version__)#당신은 torch version 몇을 쓰고 있습니다.
 ## ********************** Set gpu **********************
 os.environ["CUDA_VISIBLE_DEVICES"]="6"#6번 GPU를 씁니다.
@@ -34,7 +39,15 @@ print('Current cuda device:', torch.cuda.current_device())
 IMAGE_HEIGHT = 256#IMAGE의 HEIGHT는 256이고
 IMAGE_WIDTH = 256#IMAGE의 WIDTH는 256이고
 BATCH_SIZE = 1#여기서는 BATCH_SIZE를 8로 하겠습니다.
-ITERATIONS = 100000000#이터레이션의 횟수
+ITERATIONS = 30*380#이터레이션의 횟수
+LR = 0.001
+wandb.config = {
+  "IMAGE_HEIGHT" : IMAGE_HEIGHT,
+  "IMAGE_WIDTH": IMAGE_WIDTH,
+  "BATCH_SIZE": BATCH_SIZE,
+  "ITERATIONS" : ITERATIONS,
+  "Learning_Rate" : LR
+}
 pre_ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/model/torch/depth_prediction"
 model_num = '1920000'
 model_num_int = 1920000
@@ -44,8 +57,8 @@ RP_image_range = range(0,188)#Tang_data의 개수는 188개이다.
 origin1n, scaling1n, C1n, cen1n, K1n, Ki1n, M1n, R1n, Rt1n = get_camera(BATCH_SIZE,IMAGE_HEIGHT)#get_camera를 통해 다음과 같은 정보를 받아옴
 origin1n = torch.Tensor(origin1n).type(torch.float32).to(device)
 scaling1n = torch.Tensor(scaling1n).type(torch.float32).to(device)
-K = torch.zeros([3,3]).type(torch.float32).to(device)
-C = torch.zeros([3,4]).type(torch.float32).to(device)
+K = torch.rand([3,3]).type(torch.float32).to(device)
+C = torch.rand([3,4]).type(torch.float32).to(device)
 C1n = torch.Tensor(C1n).type(torch.float32).to(device)
 cen1n = torch.Tensor(cen1n).type(torch.float32).to(device)
 K1n = torch.Tensor(K1n).type(torch.float32).to(device)
@@ -54,14 +67,17 @@ M1n = torch.Tensor(M1n).type(torch.float32).to(device)
 R1n = torch.Tensor(R1n).type(torch.float32).to(device)
 Rt1n = torch.Tensor(Rt1n).type(torch.float32).to(device)
 ## **************************** define the network ****************************
+PATH = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/DepthEstimator/"
 model = hourglass_refinement_1(9).to(device)
+model.load_state_dict(torch.load(PATH + 'model_6000.pt'))
+print("Model restored.")
 ## ****************************optimizer****************************
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-08)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=0.1)
 ##  ********************** make the output folders ********************** 
-ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/DepthEstimator"
+ck_pnts_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/HDNet"
 log_dir = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/"
 Vis_dir  = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/visualization/HDNet/tiktok/"
-Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/visualization/DepthEstimator/Tang/"
+Vis_dir_rp  = "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/visualization/HDNet/Tang/"
 
 if not path.exists(ck_pnts_dir):
     print("ck_pnts_dir created!")
@@ -79,6 +95,7 @@ if not path.exists(Vis_dir_rp):
 if (path.exists(log_dir+"trainLog.txt")):
     os.remove(log_dir+"trainLog.txt")    
 ##  ********************** Run the training ********************** 
+start_time_1 = time.time()
 for itr in range(ITERATIONS):
     (X_1, X1, Y1, N1, Z1, DP1, Z1_3,frms) = get_renderpeople_patch(rp_path, BATCH_SIZE, RP_image_range, IMAGE_HEIGHT,IMAGE_WIDTH)#renderpeople에서 GT를 가져온다.
     (X_1_tk, X1_tk, N1_tk, Z1_tk, DP1_tk, Z1_3_tk, X_2_tk, X2_tk, N2_tk, Z2_tk, DP2_tk, Z2_3_tk, i_r1_c1_r2_c2_tk, i_limit_tk, frms_tk, frms_neighbor_tk) = get_tiktok_patch(tk_path, BATCH_SIZE, IMAGE_HEIGHT,IMAGE_WIDTH)
@@ -105,7 +122,7 @@ for itr in range(ITERATIONS):
 ##  ****************************Loss RP****************************
     nmap1 = dmap_to_nmap_1(out2_1, Rt1n, R1n, Ki1n, cen1n, Z1, origin1n, scaling1n,device).to(device)
     total_loss1_d = calc_loss_1(out2_1,Y1,Z1)
-    total_loss2_d = calc_loss_d_refined_mask_1(out2_1,Y1,Z1)
+    total_loss2_d = calc_loss_d_refined_mask_1(out2_1,Y1,Z1,device)
     total_loss_n = calc_loss_normal2_1(nmap1,N1,Z1)
     total_loss_rp = 2*total_loss1_d + total_loss2_d + total_loss_n
 ##  ****************************Loss TK****************************
@@ -118,33 +135,45 @@ for itr in range(ITERATIONS):
     total_loss=(total_loss_rp+total_loss_tk).to(device)
     total_loss.backward()
     optimizer.step()
+    gc.collect()
+    torch.cuda.empty_cache()
     if itr%10 == 0:
         f_err = open(log_dir+"trainLog.txt","a")
         f_err.write("%d %g\n" % (itr,total_loss_rp+total_loss_tk))
         f_err.close()
         print("")
         print("iteration %3d, depth refinement training loss is %g." %(itr,  (total_loss_rp+total_loss_tk)))
-        
+        print("10 iter Time taken: %.2fs" % (time.time() - start_time_1))
+        start_time_1 = time.time()
     if itr % 100 == 0:
-        prediction1=out2_1.cpu().detach().numpy()
-        prediction1_tk=out2_1_tk.cpu().detach().numpy()
+        prediction1=out2_1.detach().cpu().numpy()
+        prediction1_tk=out2_1_tk.detach().cpu().numpy()
         fidx = [int(frms[0])]
-        
-        write_prediction(Vis_dir_rp,prediction1,itr,fidx,Z1.cpu().detach().numpy());
+        z1_cpu=Z1.detach().cpu().numpy();
+        x1_cpu=X1.detach().cpu().numpy()
+        z1_3_cpu=Z1_3.detach().cpu().numpy()
+        nmap1_cpu=nmap1.detach().cpu().numpy()
+        z1_tk_cpu=Z1_tk.detach().cpu().numpy()
+        nmap1_tk_cpu=nmap1_tk.detach().cpu().numpy()
+        write_prediction(Vis_dir_rp,prediction1,itr,fidx,z1_cpu);
         
 
-        write_prediction_normal(Vis_dir_rp,nmap1.cpu().detach().numpy(),itr,fidx,Z1.cpu().detach().numpy())
+        write_prediction_normal(Vis_dir_rp,nmap1_cpu,itr,fidx,z1_cpu)
         
-        save_prediction_png (prediction1[0,...,0],nmap1[0,...].cpu().detach().numpy(),X1.cpu().detach().numpy(),Z1.cpu().detach().numpy(),Z1_3.cpu().detach().numpy(),Vis_dir_rp,itr,fidx,1)
+        save_prediction_png (prediction1[0,...,0],nmap1_cpu[0,...],x1_cpu,z1_cpu,z1_3_cpu,Vis_dir_rp,itr,fidx,1)
         fidx = [int(frms_tk[0])]
-        write_prediction(Vis_dir,prediction1_tk,itr,fidx,Z1_tk.cpu().detach().numpy());
+        write_prediction(Vis_dir,prediction1_tk,itr,fidx,z1_tk_cpu);
         
-        write_prediction_normal(Vis_dir,nmap1_tk.cpu().detach().numpy(),itr,fidx,Z1_tk.cpu().detach().numpy())
-        save_prediction_png (prediction1_tk[0,...,0],nmap1_tk[0,...].cpu().detach().numpy(),X1_tk,Z1_tk.cpu().detach().numpy(),Z1_3_tk,Vis_dir,itr,fidx,1)
+        write_prediction_normal(Vis_dir,nmap1_tk_cpu,itr,fidx,z1_tk_cpu)
+        save_prediction_png (prediction1_tk[0,...,0],nmap1_tk_cpu[0,...],X1_tk,z1_tk_cpu,Z1_3_tk,Vis_dir,itr,fidx,1)
         
-    if itr % 10000 == 0 and itr != 0:
-        torch.save(model.state_dict(), ck_pnts_dir +"/model_" + str(itr) + "/model_" + str(itr) + ".pt")#checkpoint만들기
-
+    if itr % 1000 == 0 and itr != 0:
+        torch.save(model.state_dict(), ck_pnts_dir + "/model_" + str(itr) + ".pt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
+    if itr == (ITERATIONS-2):
+        torch.save(model.state_dict(), ck_pnts_dir + "/model_" + str(itr) + ".pt")#checkpoint만들기
+        print("iteration %3d, checkpoint save." %(itr))
+    wandb.log({"loss": total_loss})
 
 
 
