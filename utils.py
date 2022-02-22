@@ -6,8 +6,22 @@ import scipy.misc
 import glob
 import ntpath
 from os import path
-
-
+import pdb
+# **********************************************************************************************************
+def make_square(im, min_size=256, fill_color=(0, 0, 0)):
+    x, y = im.size
+    size = max(min_size, x, y)
+    ratio=min_size/size
+    new_im = Image.new('RGB', (min_size, min_size), fill_color)
+    new_im.paste(im.resize((int(x*ratio),int(y*ratio))), (int((min_size - int(x*ratio)) / 2), int((min_size - int(y*ratio)) / 2)))
+    return new_im
+def make_square_mask(im, min_size=256, fill_color=(0)):
+    x, y = im.size
+    size = max(min_size, x, y)
+    ratio=min_size/size
+    new_im = Image.new('L', (min_size, min_size), fill_color)
+    new_im.paste(im.resize((int(x*ratio),int(y*ratio))), (int((min_size - int(x*ratio)) / 2), int((min_size - int(y*ratio)) / 2)))
+    return new_im
 # **********************************************************************************************************
 def write_matrix_txt(a,filename):
     mat = np.matrix(a)
@@ -46,14 +60,23 @@ def get_origin_scaling(bbs, IMAGE_HEIGHT):
 
 # **********************************************************************************************************
 def read_test_data(data_main_path,data_name,IMAGE_HEIGHT,IMAGE_WIDTH):
-    image_path = data_main_path +"/" + data_name + "_img.png"
-    mask_path = data_main_path +"/" + data_name + "_mask.png"
-    dp_path = data_main_path +"/" + data_name + "_dp.png"
+    image_path = data_main_path +"/images/" + data_name + ".png"
+    dp_path = data_main_path +"/densepose/" + data_name + ".png"
+    mask_path = data_main_path +"/masks/" + data_name + ".png"
     
-    color = np.array(scipy.misc.imread(image_path),dtype='f')
-    mask = np.array(scipy.misc.imread(mask_path),dtype='f')
-    dp = np.array(scipy.misc.imread(dp_path),dtype='f')
-    
+    #color = np.array(Image.open(image_path),dtype='f')
+    im_color=make_square(Image.open(image_path))
+    im_color.save('./test_data'+"/infer_out/"+'color.png')
+    color = np.array(im_color,dtype='f')
+    #mask = np.array(Image.open(mask_path),dtype='f')
+    im_mask=make_square_mask(Image.open(mask_path))
+    im_mask.save('./test_data'+"/infer_out/"+'mask.png')
+    mask = np.array(im_mask,dtype='f')
+    #dp = np.array(Image.open(dp_path),dtype='f')
+    im_dp=make_square(Image.open(dp_path))
+    im_dp.save('./test_data'+"/infer_out/"+'dp.png')
+    dp = np.array(im_dp,dtype='f')
+    #pdb.set_trace()
     X = np.zeros((1,IMAGE_HEIGHT,IMAGE_WIDTH,3),dtype='f')
     X[0,...] = color
     
@@ -100,7 +123,19 @@ def read_test_data(data_main_path,data_name,IMAGE_HEIGHT,IMAGE_WIDTH):
     (origin, scaling) = get_origin_scaling(bbs, IMAGE_HEIGHT)
     
     return X,Z, Z3, C, cen,K,Ki, R,Rt,  scaling, origin, DP
+def read_tiktok_data(data_main_path,data_name,IMAGE_HEIGHT,IMAGE_WIDTH):
+    dp_path = data_main_path +"/densepose/" + data_name + ".png"
 
+    #dp = np.array(Image.open(dp_path),dtype='f')
+    im_dp=make_square(Image.open(dp_path))
+    im_dp.save('./test_data'+"/infer_out/"+'dp.png')
+    dp = np.array(im_dp,dtype='f')
+    #pdb.set_trace()
+    
+    DP = np.zeros((1,IMAGE_HEIGHT,IMAGE_WIDTH,3),dtype='f')
+    DP[0,...] = dp
+    
+    return DP
 # **********************************************************************************************************
 def nmap_normalization(nmap_batch):
     image_mag = np.expand_dims(np.sqrt(np.square(nmap_batch).sum(axis=3)),-1)
@@ -115,17 +150,29 @@ def get_concat_h(im1, im2):
 def path_leaf(inpath):
     head, tail = ntpath.split(inpath)
     return tail or ntpath.basename(head)
-def get_test_data(inpath):
-    pngpath = inpath+'/*_img.png'
+def get_test_data(inpath,num):
+    pngpath = inpath+'/images'+'/*.png'
     all_img  = glob.glob(pngpath)
     filename_list = []
-    for i in range(len(all_img)):
+    for i in range(len(np.arange(num))):
         img_name = path_leaf(all_img[i])
-        name = img_name[0:-8]
-        dpname = name+"_dp.png"
-        mname = name+"_mask.png"
-        if path.exists(inpath+'/'+dpname) and path.exists(inpath+'/'+mname):
-            filename_list.append(name)          
+        name = img_name[0:4]
+        
+        dpname ='/densepose/'+name+".png"
+        mname = '/masks/'+name+".png"
+        if path.exists(inpath+dpname) and path.exists(inpath+mname):
+            filename_list.append(name)        
+     
+    return filename_list
+def get_tiktok_data(inpath,num):
+    pngpath = inpath+'/densepose'+'/*.png'
+    all_img  = sorted(glob.glob(pngpath))
+    filename_list = []
+    for i in range(len(np.arange(num))):
+        img_name = path_leaf(all_img[i])
+        name = img_name[0:7]
+        filename_list.append(name)        
+        #pdb.set_trace()
     return filename_list
 # **********************************************************************************************************  
 # Function borrowed from https://github.com/sfu-gruvi-3dv/deep_human

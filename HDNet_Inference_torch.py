@@ -2,7 +2,7 @@
 author: Yasamin Jafarian
 """
 
-import tensorflow as tf
+#import tensorflow as tf
 from os import path
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
@@ -12,11 +12,11 @@ from PIL import Image, ImageDraw, ImageFont
 import random
 import sys
 import matplotlib.pyplot as plt
-tf.logging.set_verbosity(tf.logging.ERROR)
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+#tf.logging.set_verbosity(tf.logging.ERROR)
+#tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 import pdb
 import math
-from tensorflow.python.platform import gfile
+#from tensorflow.python.platform import gfile
 import scipy.misc
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
@@ -25,16 +25,21 @@ import torch.nn as nn
 from hourglass_net_depth_torch import hourglass_refinement_1
 from hourglass_net_normal_torch import hourglass_normal_prediction_1
 from utils import (write_matrix_txt,get_origin_scaling,get_concat_h, depth2mesh, read_test_data, nmap_normalization, get_test_data) 
-
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]= "4,5,6,7"
 ############################## test path and outpath ##################################
-data_main_path = './test_data'
-outpath = data_main_path+"/infer_out/"+"/pytorch/"
+img_number="/00138/"
+data_main_path = '/local_data/TikTok_dataset'+img_number
+#data_main_path = './test_data'+img_number
+outpath = './test_data'+"/infer_out/"+"pytorch/"+"HDNet_up6"+img_number
 visualization = True
-
+num=5
 ##############################    Inference Code     ##################################
-pre_ck_pnts_dir_DR =  "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/HDNet/"
+#pre_ck_pnts_dir_DR =  "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/HDNet/"
+pre_ck_pnts_dir_DR =  "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/HDNet_up6/"
 model_num_DR = '1920000'
-pre_ck_pnts_dir_NP =  "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/NormalEstimator/"
+#pre_ck_pnts_dir_NP =  "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/NormalEstimator/"
+pre_ck_pnts_dir_NP =  "/home/ug_psh/HDNet_torch_ami/training_progress/pytorch/model/HDNet_up6/"
 model_num_NP = '1710000'
 IMAGE_HEIGHT = 256
 IMAGE_WIDTH = 256
@@ -44,8 +49,8 @@ Vis_dir = outpath
 if not path.exists(Vis_dir):
     print("Vis_dir created!")
     os.makedirs(Vis_dir)
-refineNet_graph = tf.Graph()
-NormNet_graph = tf.Graph()
+#refineNet_graph = tf.Graph()
+#NormNet_graph = tf.Graph()
 
 # Define the depth and normal networks
 # ***********************************Normal Prediction******************************************
@@ -53,12 +58,12 @@ model_n = hourglass_normal_prediction_1(3)
 # ***********************************Depth Prediction******************************************
 model_d = hourglass_refinement_1(9)
 # load checkpoints
-model_n.load_state_dict(torch.load(pre_ck_pnts_dir_NP + 'model_1000.pt'))
+model_n.load_state_dict(torch.load(pre_ck_pnts_dir_NP + 'model_1_11398.pt'))
 print("Model NP restored.")
 model_d.load_state_dict(torch.load(pre_ck_pnts_dir_DR + 'model_11398.pt'))
 print("Model DR restored.")
 # Read the test images and run the HDNet
-test_files = get_test_data(data_main_path)
+test_files = get_test_data(data_main_path,num)
 
 for f in range(len(test_files)):
     data_name = test_files[f]

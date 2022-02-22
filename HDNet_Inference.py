@@ -22,16 +22,21 @@ import scipy.misc
 from hourglass_net_depth import hourglass_refinement
 from hourglass_net_normal import hourglass_normal_prediction
 from utils import (write_matrix_txt,get_origin_scaling,get_concat_h, depth2mesh, read_test_data, nmap_normalization, get_test_data) 
-
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"]= "4,5"
 ############################## test path and outpath ##################################
-data_main_path = './test_data'
-outpath = data_main_path+"/infer_out/"+"/tensorflow/"
+img_number="/00138/"
+data_main_path = '/local_data/TikTok_dataset'+img_number
+#data_main_path = './test_data'+img_number
+outpath = './test_data'+"/infer_out/"+"tensorflow" +img_number
 visualization = True
-
+num=5
 ##############################    Inference Code     ##################################
-pre_ck_pnts_dir_DR =  "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/HDNet/"
+#pre_ck_pnts_dir_DR =  "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/HDNet/"
+pre_ck_pnts_dir_DR = "/home/ug_psh/HDNet_torch_ami/model/depth_prediction/"
 model_num_DR = '1920000'
-pre_ck_pnts_dir_NP =  "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/NormalEstimator/"
+#pre_ck_pnts_dir_NP =  "/home/ug_psh/HDNet_torch_ami/training_progress/tensorflow/model/NormalEstimator/"
+pre_ck_pnts_dir_NP = "/home/ug_psh/HDNet_torch_ami/model/normal_prediction/"
 model_num_NP = '1710000'
 IMAGE_HEIGHT = 256
 IMAGE_WIDTH = 256
@@ -63,19 +68,19 @@ with sess.as_default():
     with refineNet_graph.as_default():
         tf.global_variables_initializer().run()
         saver = tf.train.Saver()
-        saver = tf.train.import_meta_graph(pre_ck_pnts_dir_DR+'model_11398.ckpt.meta')
-        saver.restore(sess,pre_ck_pnts_dir_DR+'model_11398.ckpt')
+        saver = tf.train.import_meta_graph(pre_ck_pnts_dir_DR+'model_1920000.ckpt.meta')
+        saver.restore(sess,pre_ck_pnts_dir_DR+'model_1920000.ckpt')
         print("Model DR restored.")
 with sess2.as_default():
     with NormNet_graph.as_default():
         tf.global_variables_initializer().run()
         saver2 = tf.train.Saver()
-        saver2 = tf.train.import_meta_graph(pre_ck_pnts_dir_NP+'model_1000.ckpt.meta')
-        saver2.restore(sess2,pre_ck_pnts_dir_NP+'model_1000.ckpt')
+        saver2 = tf.train.import_meta_graph(pre_ck_pnts_dir_NP+'model_1710000.ckpt.meta')
+        saver2.restore(sess2,pre_ck_pnts_dir_NP+'model_1710000.ckpt')
         print("Model NP restored.")
         
 # Read the test images and run the HDNet
-test_files = get_test_data(data_main_path)
+test_files = get_test_data(data_main_path,num)
 
 for f in range(len(test_files)):
     data_name = test_files[f]
@@ -126,7 +131,7 @@ for f in range(len(test_files)):
         
         plt.imsave(Vis_dir+data_name+"_depth.png", depth_map, cmap="hot") 
         plt.imsave(Vis_dir+data_name+"_normal.png", normal_map_rgb) 
-        
+        #pdb.set_trace()
         d = np.array(scipy.misc.imread(Vis_dir+data_name+"_depth.png"),dtype='f')
         d = np.where(Z3[0,...]>0,d[...,0:3],255.0)
         n = np.array(scipy.misc.imread(Vis_dir+data_name+"_normal.png"),dtype='f')
